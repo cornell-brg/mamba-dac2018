@@ -32,4 +32,4 @@ $ source <folder-for-venv>/bin/activate
 
 "Installing" Mamba framework
 ----------------------------
-Under development
+Under development. Repository should be ready for use by DAC.
