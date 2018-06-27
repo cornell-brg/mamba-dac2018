@@ -6,17 +6,15 @@
 # This makes it easy to do a clean build under the source directory and
 # still have it appear clean to git.
 
+.\#*
+scripts/work
 build*/
 autom4te.cache/
-pymtl.egg-info
-*__pycache__
-*.pyc
-*.pyo
-*/.DS_Store
+__pycache__/
+*.py[cod]
+.DS_Store
 .cache/
-*.sw*
-*.tmp
-pymtl/
-PyRTL/
-migen/
-myhdl/
+*~
+.lock*
+*.swp
+pymtl.egg-info

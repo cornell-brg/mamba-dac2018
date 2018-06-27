@@ -19,6 +19,11 @@ $ <python/pypy> ../../rpython/bin/rpython \
 Setup virtualenv
 ----------------
 Mamba is only tested to work with Python2 (Python 2.7 is recommended).
+
+**Mamba simulation should work out-of-the-box with the default CPython on
+Linux without extra packages.**
+
+
 We highly recommend using a virtual environment to avoid problems. Note
 that you may set up virtualenv for both CPython and PyPy for performance
 comparison. You just need to install pytest, cffi, and graphviz in the
@@ -32,4 +37,15 @@ $ source <folder-for-venv>/bin/activate
 
 "Installing" Mamba framework
 ----------------------------
-Under development. Repository should be ready for use by DAC.
+Mamba is a new version of pymtl, and is included in mamba/. Currently we
+don't install it; we just add mamba/ folder to PYTHON_PATH in simulator or
+conftest. You don't need to do much if you want to run the divider
+experiments
+
+The following should work out-of-the-box.
+
+```
+$ cd divider/mamba
+$ ./idiv-sim --help
+$ ./idiv-sim --trace
+```

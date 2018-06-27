@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+#=========================================================================
+# idiv-sim-low [options]
+#=========================================================================
+#
+#  -h --help           Display this message
+#
+#  --cycle             number of cycles
+#  --trace             Display line tracing
+#  --vsrc              {verilog, chisel}
+
+#-------------------------------------------------------------------------
+# Command line processing
+#-------------------------------------------------------------------------
+import argparse, os, sys, timeit, shutil
+from subprocess import check_output, CalledProcessError
+
+class ArgumentParserWithCustomError(argparse.ArgumentParser):
+  def error( self, msg = "" ):
+    if ( msg ): print("\n ERROR: %s" % msg)
+    print("")
+    file = open( sys.argv[0] )
+    for ( lineno, line ) in enumerate( file ):
+      if ( line[0] != '#' ): sys.exit(msg != "")
+      if ( (lineno == 2) or (lineno >= 4) ): print( line[1:].rstrip("\n") )
+
+def parse_cmdline():
+  p = ArgumentParserWithCustomError( add_help=False )
+
+  # Standard command line arguments
+
+  p.add_argument( "-h", "--help",    action="store_true" )
+
+  # Additional commane line arguments for the simulator
+
+  p.add_argument( "--cycle", default=100, type=int )
+  p.add_argument( "--trace", action="store_true"    )
+  p.add_argument( "--vsrc",  required=True, choices=["verilog","chisel"] )
+
+  opts = p.parse_args()
+  if opts.help: p.error()
+  return opts
+
+def main():
+  # + Capture compilation time!
+  compilation_start_time = timeit.default_timer()
+  opts = parse_cmdline()
+
+  folder = "verilog_src" if opts.vsrc == "verilog" else "chisel"
+
+  if os.path.exists( "build" ):
+    shutil.rmtree( "build" )
+
+  # !!! verilator basically calls a perl script, so I have to use a single
+  # command here
+  # Verilate the model
+
+  verilate_command = "verilator -cc ../{}/IntDivRem4.v -top-module \
+                      IntDivRem4 -I.. --Mdir build -O3 -Wno-lint -Wno-UNOPTFLAT \
+                      --unroll-count 1000000 --unroll-stmts 1000000 --assert" \
+                      .format( folder )
+  try:
+    result = check_output( verilate_command, shell=True  ).strip()
+  except CalledProcessError as e:
+    raise Exception( "Error verilating the verilog to C++!\n\n"
+                     "Compiling command: {cmd}\n\n"
+                     "{output}"
+                     .format( cmd=' '.join(e.cmd), output=e.output ) )
+
+  # Compile the model with C++ harness
+
+  verilator_include = check_output( ["pkg-config","--variable=includedir","verilator"] ).strip()
+
+  compile_command = [ "g++", "-O1", "-fstrict-aliasing", "-I"+verilator_include, "-I"+verilator_include+"/vltstd",
+                      "-o", "idiv-sim-low-{}-exe".format( opts.vsrc ),
+                      "idiv-sim-low-harness.cpp",
+                      "build/VIntDivRem4.cpp", "build/VIntDivRem4__Syms.cpp", "build/VIntDivRem4__Dpi.cpp",
+                      verilator_include+"/verilated.cpp", verilator_include+"/verilated_dpi.cpp"
+                    ]
+
+  try:
+    result = check_output( compile_command ).strip()
+  except CalledProcessError as e:
+    raise Exception( "Error compile the verilated C++ with C++ harness!\n\n"
+                     "Compiling command: {cmd}\n\n"
+                     "{output}"
+                     .format( cmd=' '.join(e.cmd), output=e.output ) )
+
+  execute_command = [ "./idiv-sim-low-{}-exe".format(opts.vsrc),
+                      "{}".format(int(opts.trace)),
+                      "{}".format(opts.cycle),
+                      "64" ]
+
+  # - Capture compilation time!
+  compilation_time = timeit.default_timer() - compilation_start_time
+
+  # Now time the execution
+
+  start_time = timeit.default_timer()
+
+  try:
+    result = check_output( execute_command ).strip()
+  except CalledProcessError as e:
+    raise Exception( "Error running the compiled C++ simulator!\n\n"
+                     "Simulator command line: {cmd}\n\n"
+                     "Simulator output:\n {output}"
+                     .format( cmd=' '.join(e.cmd), output=e.output ) )
+
+  end_time = timeit.default_timer()
+
+  print "Compilation: {:.3f} sec | {}: {:8.0f} cps = {:11d} cycles / {:.3f} sec [verilator-{}]".format \
+        ( compilation_time, result, opts.cycle/(end_time - start_time), opts.cycle, end_time - start_time, opts.vsrc )
+
+
+main()

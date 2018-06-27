@@ -1,0 +1,127 @@
+#!/usr/bin/env python
+#=========================================================================
+# idiv-sim [options]
+#=========================================================================
+#
+#  -h --help           Display this message
+#
+#  --cycle             number of cycles
+#  --trace             Display line tracing
+#  --sim               {normal, fast, compiled}
+
+#-------------------------------------------------------------------------
+# Command line processing
+#-------------------------------------------------------------------------
+import argparse, os, sys, timeit
+
+sim_dir = os.path.dirname( os.path.abspath( __file__ ) )
+while sim_dir:
+  if os.path.exists( sim_dir + os.path.sep + ".project-root-path" ):
+    sys.path.insert(0,sim_dir)
+    break
+  sim_dir = os.path.dirname(sim_dir)
+
+sys.path.insert(0, os.path.join(os.path.dirname(sim_dir),"PyRTL") )
+
+class ArgumentParserWithCustomError(argparse.ArgumentParser):
+  def error( self, msg = "" ):
+    if ( msg ): print("\n ERROR: %s" % msg)
+    print("")
+    file = open( sys.argv[0] )
+    for ( lineno, line ) in enumerate( file ):
+      if ( line[0] != '#' ): sys.exit(msg != "")
+      if ( (lineno == 2) or (lineno >= 4) ): print( line[1:].rstrip("\n") )
+
+def parse_cmdline():
+  p = ArgumentParserWithCustomError( add_help=False )
+
+  # Standard command line arguments
+
+  p.add_argument( "-h", "--help",    action="store_true" )
+
+  # Additional commane line arguments for the simulator
+
+  p.add_argument( "--cycle", default=100, type=int )
+  p.add_argument( "--nbits", default=64, type=int )
+  p.add_argument( "--trace", action="store_true"    )
+  p.add_argument( "--sim",   required=True, choices=["normal","fast","compiled"] )
+
+  opts = p.parse_args()
+  if opts.help: p.error()
+  return opts
+
+from pyrtl import *
+from IntDivRem4 import IntDivRem4
+from divider_input.python_input import inp, oup
+
+def main():
+  # + Capture compilation time!
+  compilation_start_time = timeit.default_timer()
+
+  try:
+    import pypyjit
+    pypyjit.set_param("default")
+    pypyjit.set_param("trace_limit=100000000")
+  except:
+    pass
+
+  opts    = parse_cmdline()
+  nbits   = opts.nbits
+  ncycles = opts.cycle
+
+  if opts.sim == "normal":
+    idiv = IntDivRem4( nbits )
+    sim = Simulation()
+  elif opts.sim == "fast":
+    idiv = IntDivRem4( nbits )
+    sim = FastSimulation()
+  else:
+    assert opts.sim == "compiled"
+    # !!!PyRTL only supports < 128 bit and they extend one more bit for
+    # subtraction, so we cannot do 64-bit
+
+    idiv = IntDivRem4( min(nbits,63) )
+    sim = CompiledSimulation()
+
+  sim.step({
+    idiv.reset: 1,
+    idiv.req_val: 1,
+    idiv.req_msg: 0,
+    idiv.resp_rdy: 1,
+  })
+
+  l = len(inp)
+  ans = passed = 0
+
+  # - Capture compilation time!
+  compilation_time = timeit.default_timer() - compilation_start_time
+
+  # Now time the execution
+
+  start_time = timeit.default_timer()
+  for cycle in xrange(ncycles):
+    sim.step({
+      idiv.reset: 0,
+      idiv.req_val: 1,
+      idiv.req_msg: inp[cycle % l],
+      idiv.resp_rdy: 1,
+    })
+
+    # Cannot inspect a CompiledSim!
+    if opts.sim != "compiled":
+      req_rdy = sim.inspect(idiv.req_rdy)
+      resp_val = sim.inspect(idiv.resp_val)
+      resp_msg = sim.inspect(idiv.resp_msg)
+
+      if req_rdy:
+        ans = oup[cycle % l]
+      if resp_val:
+        assert resp_msg == ans
+        passed += 1
+
+  end_time = timeit.default_timer()
+
+  print "Compilation: {:.3f} sec | [{} passed] idiv: {:8.0f} cps = {:11d} cycles / {:.3f} sec [pyrtl-{}]".format \
+        ( compilation_time, passed, ncycles/(end_time - start_time), ncycles, end_time - start_time, opts.sim )
+
+main()
